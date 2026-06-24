@@ -27,7 +27,7 @@ Source0:        xpad-src.tar.gz
 
 BuildRequires:  gcc
 BuildRequires:  make
-BuildRequires:  kernel-devel = %{kernel_version}
+BuildRequires:  kernel-devel
 ExclusiveArch:  x86_64
 
 %description
