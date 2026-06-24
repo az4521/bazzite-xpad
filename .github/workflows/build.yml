@@ -1,0 +1,73 @@
+name: Build xpad-chatpad kmod RPM
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, so the RPM tracks the moving bazzite-deck:testing kernel.
+    - cron: "0 6 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - "Containerfile.build"
+      - "xpad-chatpad.spec"
+      - ".github/workflows/build.yml"
+
+env:
+  # Keep this in sync with the image you actually run (rpm-ostree status).
+  BASE_IMAGE: ghcr.io/ublue-os/bazzite-deck:testing
+  # Branch/tag of az4521/xpad to build.
+  XPAD_REF: chatpad-support
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build kmod RPM
+        run: |
+          docker buildx build \
+            --target export \
+            --build-arg BASE_IMAGE="${BASE_IMAGE}" \
+            --build-arg XPAD_REF="${XPAD_REF}" \
+            -f Containerfile.build \
+            -o type=local,dest=out \
+            .
+          echo "Built artifacts:"
+          ls -l out/
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xpad-chatpad-kmod-rpm
+          path: out/*.rpm
+          if-no-files-found: error
+
+      - name: Publish rolling "latest" release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest kmod build
+          files: out/*.rpm
+          body: |
+            xpad driver with Xbox 360 Chatpad support, packaged as a kmod RPM
+            built against `${{ env.BASE_IMAGE }}`.
+
+            The RPM is locked to the kernel in that image at build time. Install
+            on a matching deployment:
+
+            ```bash
+            curl -L -O <url to the .rpm below>
+            sudo rpm-ostree install ./xpad-chatpad-kmod-*.rpm
+            systemctl reboot
+            ```
+
+            If your running kernel differs from this build's kernel, re-run this
+            workflow (or wait for the weekly run) and install the fresh RPM.

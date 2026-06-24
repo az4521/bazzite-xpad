@@ -1,0 +1,48 @@
+# Builds the xpad-chatpad kmod RPM against the exact kernel shipped in the
+# target Bazzite image. Everything happens in a throwaway builder stage; the
+# final "export" stage contains nothing but the resulting RPM so it can be
+# extracted with `--output`.
+#
+#   docker buildx build --target export -o type=local,dest=out \
+#       -f Containerfile.build .
+#
+# The RPM lands in ./out/.
+
+ARG BASE_IMAGE=ghcr.io/ublue-os/bazzite-deck:testing
+
+FROM ${BASE_IMAGE} AS builder
+
+ARG XPAD_REPO=https://github.com/az4521/xpad
+ARG XPAD_REF=chatpad-support
+
+# Build tooling + kernel headers matching this image's kernel.
+# (Bazzite/bootc images ship dnf; if a future image drops it, swap this for
+#  `rpm-ostree install ...`.)
+RUN dnf install -y --setopt=install_weak_deps=False \
+        gcc make rpm-build git tar findutils kernel-devel
+
+# Fetch the driver source and stage it as the rpm Source0 tarball.
+RUN set -eux; \
+    git clone --depth=1 -b "${XPAD_REF}" "${XPAD_REPO}" /build/xpad-src; \
+    rm -rf /build/xpad-src/.git; \
+    mkdir -p /root/rpmbuild/SOURCES; \
+    tar -C /build -czf /root/rpmbuild/SOURCES/xpad-src.tar.gz xpad-src
+
+COPY xpad-chatpad.spec /build/xpad-chatpad.spec
+
+# Build the kmod RPM for the kernel present in the image.
+RUN set -eux; \
+    KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+            | grep -E '^[0-9]' | sort -V | tail -1)"; \
+    KREL="$(echo "${KVER}" | tr '-' '_')"; \
+    test -d "/usr/lib/modules/${KVER}/build"; \
+    rpmbuild -bb \
+        --define "kernel_version ${KVER}" \
+        --define "krel ${KREL}" \
+        /build/xpad-chatpad.spec; \
+    mkdir -p /out; \
+    cp /root/rpmbuild/RPMS/*/*.rpm /out/
+
+# Export-only stage: the build context output is just the RPM(s).
+FROM scratch AS export
+COPY --from=builder /out/ /
