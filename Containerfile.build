@@ -22,11 +22,13 @@ RUN dnf install -y --setopt=install_weak_deps=False \
         gcc make rpm-build git tar findutils kernel-devel
 
 # Fetch the driver source and stage it as the rpm Source0 tarball.
+# Note: on bootc images /root is a symlink to the (absent) /var/roothome, so we
+# keep the rpmbuild tree under /build and set _topdir explicitly.
 RUN set -eux; \
     git clone --depth=1 -b "${XPAD_REF}" "${XPAD_REPO}" /build/xpad-src; \
     rm -rf /build/xpad-src/.git; \
-    mkdir -p /root/rpmbuild/SOURCES; \
-    tar -C /build -czf /root/rpmbuild/SOURCES/xpad-src.tar.gz xpad-src
+    mkdir -p /build/rpmbuild/SOURCES; \
+    tar -C /build -czf /build/rpmbuild/SOURCES/xpad-src.tar.gz xpad-src
 
 COPY xpad-chatpad.spec /build/xpad-chatpad.spec
 
@@ -37,11 +39,12 @@ RUN set -eux; \
     KREL="$(echo "${KVER}" | tr '-' '_')"; \
     test -d "/usr/lib/modules/${KVER}/build"; \
     rpmbuild -bb \
+        --define "_topdir /build/rpmbuild" \
         --define "kernel_version ${KVER}" \
         --define "krel ${KREL}" \
         /build/xpad-chatpad.spec; \
     mkdir -p /out; \
-    cp /root/rpmbuild/RPMS/*/*.rpm /out/
+    cp /build/rpmbuild/RPMS/*/*.rpm /out/
 
 # Export-only stage: the build context output is just the RPM(s).
 FROM scratch AS export
